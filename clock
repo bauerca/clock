@@ -1,0 +1,140 @@
+#!/usr/bin/env python3
+
+import datetime
+import dateutil.tz
+import dateutil.parser
+import dateutil.relativedelta
+import os
+import pathlib
+import sys
+
+TIMESHEET = '{}/.timesheet/timesheet.txt'.format( str( pathlib.Path.home() ) )
+TAIL_LINES = 4
+DATETIME_FMT = '%a %b %d %H:%M:%S %Z %Y\n'
+DATE_FMT = '%a %b %d'
+CLOCK_IN = 0
+CLOCK_OUT = 1
+
+def parse_entry( line ):
+    entry = []
+    if 'clock in' in line:
+        entry.append( CLOCK_IN )
+        time_str = line[ 9 : ]
+    else:
+        entry.append( CLOCK_OUT )
+        time_str = line[ 10 : ]
+    entry.append( dateutil.parser.parse( time_str ) )
+    return entry
+
+def serialize_entry( entry ):
+    kind, time = entry
+    string = 'clock '
+    if kind == CLOCK_IN: string += 'in'
+    else: string += 'out'
+    return string + ' ' + time.strftime( DATETIME_FMT )
+
+def find_next_session( timesheet ):
+    entry = parse_entry( timesheet.readline() )
+    while entry[ 0 ] == CLOCK_OUT:
+        line = timesheet.readline()
+        if line == '':
+            return None
+        entry = parse_entry( line )
+    clock_in = None
+    while entry[ 0 ] == CLOCK_IN:
+        clock_in = entry
+        entry = parse_entry( timesheet.readline() )
+    clock_out = entry
+    return clock_in, clock_out
+
+def get_session_hours( clock_in, clock_out ):
+    return ( clock_out - clock_in ).total_seconds() / 60. / 60.
+
+def get_day_sessions( day ):
+    sessions = []
+    with open( TIMESHEET, 'r' ) as timesheet:
+        clock_in, clock_out = None, None
+        for line in timesheet:
+            entry = parse_entry( line )
+            if entry[ 0 ] == CLOCK_IN:
+                if clock_in is None or clock_out is None:
+                    clock_in = entry[ 1 ]
+            elif clock_in is not None:
+                clock_out = entry[ 1 ]
+                if clock_in.date() == day or clock_out.date() == day:
+                    sessions.append( ( clock_in, clock_out ) )
+                clock_in, clock_out = None, None
+    return sessions
+
+def get_hours( day, sessions ):
+    hours = 0.
+    for clock_in, clock_out in sessions:
+        if clock_in.date() != day:
+            clock_in = datetime.datetime( day.year, day.month, day.day,
+                hour=0, minute=0, second=0,
+                tzinfo=dateutil.tz.gettz() )
+        if clock_out.date() != day:
+            clock_out = datetime.datetime( day.year, day.month, day.day,
+                hour=23, minute=59, second=59, microsecond=999999,
+                tzinfo=dateutil.tz.gettz() )
+        hours += get_session_hours( clock_in, clock_out )
+    return hours
+
+def get_running_time( clock_in ):
+    now = datetime.datetime.now( tz=dateutil.tz.gettz() )
+    return get_session_hours( clock_in, now )
+
+def get_tail_entries( count=2 ):
+    tail_entries = []
+    with open( TIMESHEET, 'r' ) as timesheet:
+        for line in timesheet:
+            if len( tail_entries ) == count:
+                tail_entries.pop( 0 )
+            tail_entries.append( parse_entry( line ) )
+    return tail_entries
+
+def print_status():
+    tail_entries = get_tail_entries( count=2 )
+    if tail_entries[ -1 ][ 0 ] == CLOCK_IN:
+        print( 'Clocked in. {:.2f} hours'.format( get_running_time(
+            tail_entries[ -1 ][ 1 ] ) ) )
+    else:
+        for entry in tail_entries:
+            print( serialize_entry( entry ), end='' )
+        print( 'Clocked out.' )
+
+if len( sys.argv ) == 1:
+    # No arguments. If we are currently clocked in, show the running time;
+    # otherwise show the last 2 entries.
+    print_status()
+    sys.exit( 0 )
+cmd = sys.argv[ 1 ]
+if cmd in [ 'in', 'out' ]:
+    last_entry = get_tail_entries()[ -1 ]
+    if last_entry[ 0 ] == CLOCK_IN and cmd == 'in':
+        print_status()
+        sys.exit( 1 )
+    elif last_entry[ 0 ] == CLOCK_OUT and cmd == 'out':
+        print( 'Already clocked out.' )
+        sys.exit( 1 )
+    now = datetime.datetime.now( tz=dateutil.tz.gettz() )
+    with open( TIMESHEET, 'a' ) as timesheet:
+        timesheet.write( 'clock {} {}'.format( cmd,
+            now.strftime( DATETIME_FMT ) ) )
+    if cmd == 'out':
+        print( '{:.2f} hours logged.'.format(
+            get_running_time( last_entry[ 1 ] ) ) )
+elif cmd == 'today':
+    today = datetime.date.today()
+    sessions = get_day_sessions( today )
+    print( '{} {}: {:.2f} hours'.format( today.strftime( '%a %b' ),
+        today.day, get_hours( today, sessions ) ) )
+elif cmd == 'week':
+    today = datetime.date.today()
+    for num_days in reversed( range( 7 ) ):
+        day = today - dateutil.relativedelta.relativedelta( days=num_days )
+        sessions = get_day_sessions( day )
+        print( '{} {}: {:.2f} hours'.format( day.strftime( '%a %b' ),
+            day.day, get_hours( day, sessions ) ) )
+
+
