@@ -8,7 +8,8 @@ import os
 import pathlib
 import sys
 
-TIMESHEET = '{}/.timesheet/timesheet.txt'.format( str( pathlib.Path.home() ) )
+TIMESHEET_DIR =  '{}/.timesheet'.format( str( pathlib.Path.home() ) )
+TIMESHEET = '{}/timesheet.txt'.format( TIMESHEET_DIR )
 TAIL_LINES = 4
 DATETIME_FMT = '%a %b %d %H:%M:%S %Z %Y\n'
 DATE_FMT = '%a %b %d'
@@ -28,9 +29,7 @@ def parse_entry( line ):
 
 def serialize_entry( entry ):
     kind, time = entry
-    string = 'clock '
-    if kind == CLOCK_IN: string += 'in'
-    else: string += 'out'
+    string = 'clock {}'.format('in' if kind == CLOCK_IN else 'out')
     return string + ' ' + time.strftime( DATETIME_FMT )
 
 def find_next_session( timesheet ):
@@ -95,7 +94,7 @@ def get_tail_entries( count=2 ):
 
 def print_status():
     tail_entries = get_tail_entries( count=2 )
-    if tail_entries[ -1 ][ 0 ] == CLOCK_IN:
+    if tail_entries and tail_entries[ -1 ][ 0 ] == CLOCK_IN:
         print( 'Clocked in. {:.2f} hours'.format( get_running_time(
             tail_entries[ -1 ][ 1 ] ) ) )
     else:
@@ -103,27 +102,50 @@ def print_status():
             print( serialize_entry( entry ), end='' )
         print( 'Clocked out.' )
 
+def make_timesheet_file():
+    try:
+        open(TIMESHEET)
+    except FileNotFoundError:
+        open(TIMESHEET, 'w+')
+        pass
+
+def make_timesheet_directory():
+    try:
+        os.makedirs(TIMESHEET_DIR)
+    except FileExistsError:
+        pass
+
+def initialize_timesheet():
+    make_timesheet_directory()
+    make_timesheet_file()
+
+# TODO: All these things should be in a function. They're just sitting out here.
+initialize_timesheet()
 if len( sys.argv ) == 1:
     # No arguments. If we are currently clocked in, show the running time;
     # otherwise show the last 2 entries.
     print_status()
     sys.exit( 0 )
+
 cmd = sys.argv[ 1 ]
 if cmd in [ 'in', 'out' ]:
-    last_entry = get_tail_entries()[ -1 ]
-    if last_entry[ 0 ] == CLOCK_IN and cmd == 'in':
-        print_status()
-        sys.exit( 1 )
-    elif last_entry[ 0 ] == CLOCK_OUT and cmd == 'out':
-        print( 'Already clocked out.' )
-        sys.exit( 1 )
+    last_entry = get_tail_entries()[ -1 ] if get_tail_entries() else None
     now = datetime.datetime.now( tz=dateutil.tz.gettz() )
+
+    if cmd == 'in':
+        if last_entry and last_entry[ 0 ] == CLOCK_IN:
+            print_status()
+            sys.exit( 1 )
+    elif cmd == 'out' and (not last_entry or last_entry and last_entry[ 0 ] == CLOCK_OUT):
+            print( 'Already clocked out.' )
+            sys.exit( 1 )
     with open( TIMESHEET, 'a' ) as timesheet:
         timesheet.write( 'clock {} {}'.format( cmd,
             now.strftime( DATETIME_FMT ) ) )
     if cmd == 'out':
         print( '{:.2f} hours logged.'.format(
             get_running_time( last_entry[ 1 ] ) ) )
+
 elif cmd == 'today':
     today = datetime.date.today()
     sessions = get_day_sessions( today )
