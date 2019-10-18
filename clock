@@ -33,20 +33,6 @@ def serialize_entry( entry ):
     else: string += 'out'
     return string + ' ' + time.strftime( DATETIME_FMT )
 
-def find_next_session( timesheet ):
-    entry = parse_entry( timesheet.readline() )
-    while entry[ 0 ] == CLOCK_OUT:
-        line = timesheet.readline()
-        if line == '':
-            return None
-        entry = parse_entry( line )
-    clock_in = None
-    while entry[ 0 ] == CLOCK_IN:
-        clock_in = entry
-        entry = parse_entry( timesheet.readline() )
-    clock_out = entry
-    return clock_in, clock_out
-
 def get_session_hours( clock_in, clock_out ):
     return ( clock_out - clock_in ).total_seconds() / 60. / 60.
 
