@@ -119,44 +119,61 @@ def initialize_timesheet():
     make_timesheet_directory()
     make_timesheet_file()
 
-# TODO: All these things should be in a function. They're just sitting out here.
-initialize_timesheet()
-if len( sys.argv ) == 1:
-    # No arguments. If we are currently clocked in, show the running time;
-    # otherwise show the last 2 entries.
-    print_status()
-    sys.exit( 0 )
-
-cmd = sys.argv[ 1 ]
-if cmd in [ 'in', 'out' ]:
-    last_entry = get_tail_entries()[ -1 ] if get_tail_entries() else None
-    now = datetime.datetime.now( tz=dateutil.tz.gettz() )
-
+def check_current_state( cmd, last_entry ):
     if cmd == 'in':
         if last_entry and last_entry[ 0 ] == CLOCK_IN:
+            print( 'Already clocked in.' )
             print_status()
             sys.exit( 1 )
     elif cmd == 'out' and (not last_entry or last_entry and last_entry[ 0 ] == CLOCK_OUT):
             print( 'Already clocked out.' )
             sys.exit( 1 )
+
+def record_punch( cmd, last_entry ):
+    now = datetime.datetime.now( tz=dateutil.tz.gettz() )
     with open( TIMESHEET, 'a' ) as timesheet:
         timesheet.write( 'clock {} {}'.format( cmd,
             now.strftime( DATETIME_FMT ) ) )
     if cmd == 'out':
         print( '{:.2f} hours logged.'.format(
             get_running_time( last_entry[ 1 ] ) ) )
+    print_status()
+    sys.exit( 0 )
 
-elif cmd == 'today':
-    today = datetime.date.today()
-    sessions = get_day_sessions( today )
-    print( '{} {}: {:.2f} hours'.format( today.strftime( '%a %b' ),
-        today.day, get_hours( today, sessions ) ) )
-elif cmd == 'week':
-    today = datetime.date.today()
-    for num_days in reversed( range( 7 ) ):
-        day = today - dateutil.relativedelta.relativedelta( days=num_days )
-        sessions = get_day_sessions( day )
-        print( '{} {}: {:.2f} hours'.format( day.strftime( '%a %b' ),
-            day.day, get_hours( day, sessions ) ) )
+def print_summary_for( cmd ):
+
+    if cmd == 'today':
+        today = datetime.date.today()
+        sessions = get_day_sessions( today )
+        print( '{} {}: {:.2f} hours'.format( today.strftime( '%a %b' ),
+            today.day, get_hours( today, sessions ) ) )
+    elif cmd == 'week':
+        today = datetime.date.today()
+        for num_days in reversed( range( 7 ) ):
+            day = today - dateutil.relativedelta.relativedelta( days=num_days )
+            sessions = get_day_sessions( day )
+            print( '{} {}: {:.2f} hours'.format( day.strftime( '%a %b' ),
+                day.day, get_hours( day, sessions ) ) )
+    else:
+     print( 'Unknown argument: "{}"'.format( cmd ))
+     print_status()
+     sys.exit( 1 )
+
+def main():
+    initialize_timesheet()
+    if len( sys.argv ) == 1:
+        # No arguments. If we are currently clocked in, show the running time;
+        # otherwise show the last 2 entries.
+        print_status()
+        sys.exit( 0 )
+
+    cmd = sys.argv[ 1 ]
+    if cmd in [ 'in', 'out' ]:
+        last_entry = get_tail_entries()[ -1 ] if get_tail_entries() else None
+        check_current_state( cmd, last_entry )
+        record_punch( cmd, last_entry )
+    print_summary_for( cmd )
 
 
+if __name__ == "__main__":
+    main()
